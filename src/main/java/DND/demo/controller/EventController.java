@@ -14,8 +14,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/events")
-@CrossOrigin(origins = "http://localhost:5173")
-public class EventController {
+@CrossOrigin(origins = {"http://localhost:5173", "https://dndcafe.to", "https://www.dndcafe.to"})public class EventController {
 
     private final EventService service;
 
