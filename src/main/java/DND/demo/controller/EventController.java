@@ -14,7 +14,22 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/events")
-@CrossOrigin(origins = {"http://localhost:5173", "https://dndcafe.to", "https://www.dndcafe.to"})public class EventController {
+@CrossOrigin(
+        origins = {
+                "http://localhost:5173",
+                "https://dndcafe.to",
+                "https://www.dndcafe.to"
+        },
+        allowedHeaders = "*",
+        methods = {
+                RequestMethod.GET,
+                RequestMethod.POST,
+                RequestMethod.PUT,
+                RequestMethod.DELETE,
+                RequestMethod.OPTIONS
+        }
+)
+public class EventController {
 
     private final EventService service;
 
@@ -32,7 +47,6 @@ import java.util.UUID;
         return service.getEventById(id);
     }
 
-    // ✅ Create event WITH image upload
     @PostMapping(consumes = "multipart/form-data")
     public Event createWithImage(
             @RequestParam String title,
