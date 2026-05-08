@@ -1,9 +1,11 @@
 package DND.demo.config;
 
 import com.cloudinary.Cloudinary;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
 
 import java.util.HashMap;
 import java.util.Map;
@@ -28,5 +30,12 @@ public class CloudinaryConfig {
         config.put("api_secret", apiSecret);
 
         return new Cloudinary(config);
+    }
+
+    @PostConstruct
+    public void checkCloudinaryValues() {
+        System.out.println("Cloud name: " + cloudName);
+        System.out.println("API key: " + apiKey);
+        System.out.println("API secret length: " + (apiSecret == null ? 0 : apiSecret.length()));
     }
 }

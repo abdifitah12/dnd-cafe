@@ -1,16 +1,15 @@
 package DND.demo.controller;
 
 import DND.demo.entity.Event;
+import DND.demo.service.CloudinaryService;
 import DND.demo.service.EventService;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.*;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/events")
@@ -32,9 +31,11 @@ import java.util.UUID;
 public class EventController {
 
     private final EventService service;
+    private final CloudinaryService cloudinaryService;
 
-    public EventController(EventService service) {
+    public EventController(EventService service, CloudinaryService cloudinaryService) {
         this.service = service;
+        this.cloudinaryService = cloudinaryService;
     }
 
     @GetMapping
@@ -48,7 +49,7 @@ public class EventController {
     }
 
     @PostMapping(consumes = "multipart/form-data")
-    public Event createWithImage(
+    public Event createWithMedia(
             @RequestParam String title,
             @RequestParam String description,
             @RequestParam String location,
@@ -65,18 +66,22 @@ public class EventController {
         event.setTime(LocalTime.parse(time));
 
         if (image != null && !image.isEmpty()) {
-            String fileName = UUID.randomUUID() + "-" + image.getOriginalFilename();
+            System.out.println("Image received: " + image.getOriginalFilename());
+            System.out.println("Image type: " + image.getContentType());
 
-            Path uploadPath = Paths.get("uploads/events");
+            String mediaUrl = cloudinaryService.uploadFile(image);
 
-            if (!Files.exists(uploadPath)) {
-                Files.createDirectories(uploadPath);
+            System.out.println("Cloudinary URL: " + mediaUrl);
+
+            event.setImageUrl(mediaUrl);
+
+            if (image.getContentType() != null && image.getContentType().startsWith("video")) {
+                event.setMediaType("video");
+            } else {
+                event.setMediaType("image");
             }
-
-            Path filePath = uploadPath.resolve(fileName);
-            Files.copy(image.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
-
-            event.setImageUrl("/events/images/" + fileName);
+        } else {
+            System.out.println("No image received");
         }
 
         return service.createEvent(event);

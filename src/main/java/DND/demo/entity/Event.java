@@ -29,4 +29,6 @@ public class Event {
     private LocalDate date;
     private LocalTime time;
     private String imageUrl;
+    private String mediaUrl;
+    private String mediaType;
 }
