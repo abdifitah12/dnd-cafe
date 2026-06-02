@@ -1,10 +1,7 @@
 package DND.demo.entity;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -24,11 +21,20 @@ public class Event {
     private Long id;
 
     private String title;
+
+    @Column(columnDefinition = "TEXT")
     private String description;
+
     private String location;
+
     private LocalDate date;
     private LocalTime time;
+
+    @Column(columnDefinition = "TEXT")
     private String imageUrl;
+
+    @Column(columnDefinition = "TEXT")
     private String mediaUrl;
+
     private String mediaType;
 }
