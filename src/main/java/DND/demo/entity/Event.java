@@ -25,6 +25,7 @@ public class Event {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(columnDefinition = "TEXT")
     private String location;
 
     private LocalDate date;
