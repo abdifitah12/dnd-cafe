@@ -29,18 +29,23 @@ public class EventService {
     }
 
     public Event updateEvent(Long id, Event updated) {
+
         Event event = getEventById(id);
 
         event.setTitle(updated.getTitle());
         event.setDescription(updated.getDescription());
         event.setLocation(updated.getLocation());
         event.setDate(updated.getDate());
-        event.setTime(updated.getTime());
+
+        event.setStartTime(updated.getStartTime());
+        event.setEndTime(updated.getEndTime());
+
         event.setImageUrl(updated.getImageUrl());
+        event.setMediaUrl(updated.getMediaUrl());
+        event.setMediaType(updated.getMediaType());
 
         return repository.save(event);
     }
-
     public void deleteEvent(Long id) {
         if (!repository.existsById(id)) {
             throw new RuntimeException("Event not found with id: " + id);

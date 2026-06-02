@@ -54,34 +54,33 @@ public class EventController {
             @RequestParam String description,
             @RequestParam String location,
             @RequestParam String date,
-            @RequestParam String time,
+            @RequestParam String startTime,
+            @RequestParam String endTime,
             @RequestParam(required = false) MultipartFile image
     ) throws IOException {
 
         Event event = new Event();
+
         event.setTitle(title);
         event.setDescription(description);
         event.setLocation(location);
         event.setDate(LocalDate.parse(date));
-        event.setTime(LocalTime.parse(time));
+
+        event.setStartTime(LocalTime.parse(startTime));
+        event.setEndTime(LocalTime.parse(endTime));
 
         if (image != null && !image.isEmpty()) {
-            System.out.println("Image received: " + image.getOriginalFilename());
-            System.out.println("Image type: " + image.getContentType());
 
             String mediaUrl = cloudinaryService.uploadFile(image);
 
-            System.out.println("Cloudinary URL: " + mediaUrl);
-
             event.setImageUrl(mediaUrl);
 
-            if (image.getContentType() != null && image.getContentType().startsWith("video")) {
+            if (image.getContentType() != null &&
+                    image.getContentType().startsWith("video")) {
                 event.setMediaType("video");
             } else {
                 event.setMediaType("image");
             }
-        } else {
-            System.out.println("No image received");
         }
 
         return service.createEvent(event);
