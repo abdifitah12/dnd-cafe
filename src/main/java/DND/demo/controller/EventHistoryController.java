@@ -3,6 +3,7 @@ package DND.demo.controller;
 import DND.demo.entity.EventHistory;
 import DND.demo.repository.EventHistoryRepository;
 import DND.demo.service.CloudinaryService;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -33,7 +34,7 @@ public class EventHistoryController {
 
     @GetMapping
     public List<EventHistory> getAll() {
-        return repository.findAll();
+        return repository.findAll(Sort.by(Sort.Direction.DESC, "id"));
     }
 
     @PostMapping(consumes = "multipart/form-data")
