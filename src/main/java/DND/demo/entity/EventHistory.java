@@ -3,6 +3,8 @@ package DND.demo.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Data
 @NoArgsConstructor
@@ -18,6 +20,15 @@ public class EventHistory {
     @Column(length = 2000)
     private String description;
 
-    private String mediaUrl;   // Cloudinary URL
-    private String mediaType;  // image or video
+    @Column(columnDefinition = "TEXT")
+    private String mediaUrl;
+
+    private String mediaType;
+
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    public void prePersist() {
+        createdAt = LocalDateTime.now();
+    }
 }

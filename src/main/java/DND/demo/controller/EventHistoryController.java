@@ -34,7 +34,9 @@ public class EventHistoryController {
 
     @GetMapping
     public List<EventHistory> getAll() {
-        return repository.findAll(Sort.by(Sort.Direction.DESC, "id"));
+        return repository.findAll(
+                Sort.by(Sort.Direction.DESC, "createdAt")
+        );
     }
 
     @PostMapping(consumes = "multipart/form-data")
