@@ -12,7 +12,7 @@ public interface EventHistoryRepository
     @Query(value = """
         SELECT *
         FROM event_history
-        ORDER BY created_at DESC NULLS LAST, id DESC
+        ORDER BY created_at IS NULL, created_at DESC, id DESC
         """, nativeQuery = true)
     List<EventHistory> findAllNewestFirst();
 }

@@ -6,7 +6,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -25,6 +24,7 @@ public class CloudinaryConfig {
     @Bean
     public Cloudinary cloudinary() {
         Map<String, String> config = new HashMap<>();
+
         config.put("cloud_name", cloudName);
         config.put("api_key", apiKey);
         config.put("api_secret", apiSecret);
@@ -34,8 +34,11 @@ public class CloudinaryConfig {
 
     @PostConstruct
     public void checkCloudinaryValues() {
-        System.out.println("Cloud name: " + cloudName);
-        System.out.println("API key: " + apiKey);
-        System.out.println("API secret length: " + (apiSecret == null ? 0 : apiSecret.length()));
+        System.out.println("Cloud name loaded: " + (cloudName != null));
+        System.out.println("API key loaded: " + (apiKey != null));
+        System.out.println(
+                "API secret loaded: " +
+                        (apiSecret != null && !apiSecret.isBlank())
+        );
     }
 }
