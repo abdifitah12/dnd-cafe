@@ -22,6 +22,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     private static final int MAX_PENDING = 20;
     private final JsonMapper objectMapper;
     private final LiveMediaService media;
+    private final LiveHostTickets hostTickets;
     private final Map<String, WebSocketSession> participants = new LinkedHashMap<>();
     private final Map<String, WebSocketSession> pending = new LinkedHashMap<>();
     private final Object roomLock = new Object();
@@ -29,9 +30,10 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     private record MediaLimits(boolean audioBlocked, boolean cameraBlocked) {}
     private final Map<String, MediaLimits> mediaLimits = new LinkedHashMap<>();
 
-    public LiveRoomWebSocketHandler(JsonMapper objectMapper, LiveMediaService media) {
+    public LiveRoomWebSocketHandler(JsonMapper objectMapper, LiveMediaService media, LiveHostTickets hostTickets) {
         this.objectMapper = objectMapper;
         this.media = media;
+        this.hostTickets = hostTickets;
     }
 
     public record LiveParticipant(String peerId, String name, boolean audioBlocked, boolean cameraBlocked) {}
@@ -74,7 +76,17 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.BAD_DATA);
             return;
         }
+        boolean starting = "start".equals(query.getFirst("mode"));
+        if ((starting && !hostTickets.consume(query.getFirst("hostTicket")))
+                || (!starting && !"request".equals(query.getFirst("mode")))) {
+            reject(session, "Only a signed-in admin can start a live room.");
+            return;
+        }
         synchronized (roomLock) {
+            if (starting && !participants.isEmpty()) {
+                reject(session, "A live room is already running. Open the public live page to view it.");
+                return;
+            }
             if (participants.containsKey(peerId) || pending.containsKey(peerId)) {
                 reject(session, "Could not join. Please try again.");
                 return;
@@ -82,8 +94,8 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             session.getAttributes().put("peerId", peerId);
             session.getAttributes().put("displayName", name);
             if (participants.isEmpty()) {
-                if ("request".equals(query.getFirst("mode"))) {
-                    reject(session, "The host has ended the room. You can start a new live room.");
+                if (!starting) {
+                    reject(session, "No live room is active. Please wait for the cafe to go live.");
                     return;
                 }
                 hostPeerId = peerId;

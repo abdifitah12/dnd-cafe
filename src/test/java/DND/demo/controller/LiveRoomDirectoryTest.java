@@ -13,12 +13,13 @@ import static org.mockito.Mockito.*;
 
 class LiveRoomDirectoryTest {
     private final LiveMediaService media = mock(LiveMediaService.class);
-    private final LiveRoomWebSocketHandler room = new LiveRoomWebSocketHandler(JsonMapper.builder().build(), media);
+    private final LiveHostTickets hostTickets = new LiveHostTickets();
+    private final LiveRoomWebSocketHandler room = new LiveRoomWebSocketHandler(JsonMapper.builder().build(), media, hostTickets);
 
     private WebSocketSession connect(String name, String mode) throws Exception {
         var session = mock(WebSocketSession.class);
         when(session.getUri()).thenReturn(URI.create("http://localhost/ws/live?peerId=" + UUID.randomUUID()
-                + "&name=" + name + "&mode=" + mode));
+                + "&name=" + name + "&mode=" + mode + (mode.equals("start") ? "&hostTicket=" + hostTickets.issue() : "")));
         when(session.getAttributes()).thenReturn(new HashMap<>());
         when(session.isOpen()).thenReturn(true);
         room.afterConnectionEstablished(session);
@@ -36,7 +37,7 @@ class LiveRoomDirectoryTest {
 
     @Test
     void browsingDoesNotJoinTheRoomAndDisablesCaching() {
-        var response = new LiveRoomController(room).participants();
+        var response = new LiveRoomController(room, hostTickets).participants();
         assertEquals("no-store", response.getHeaders().getCacheControl());
         assertEquals(10, response.getBody().limit());
         assertTrue(response.getBody().participants().isEmpty());

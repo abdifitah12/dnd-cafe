@@ -40,7 +40,7 @@ class LiveRoomCorsTest {
         @Bean
         LiveRoomWebSocketHandler room() { return mock(LiveRoomWebSocketHandler.class); }
         @Bean
-        LiveRoomController controller(LiveRoomWebSocketHandler room) { return new LiveRoomController(room); }
+        LiveRoomController controller(LiveRoomWebSocketHandler room) { return new LiveRoomController(room, new LiveHostTickets()); }
     }
     @Test
     void productionAndLocalSitesCanReadLiveParticipants() throws Exception {

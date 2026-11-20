@@ -57,6 +57,7 @@ public class SecurityConfig {
                         .requestMatchers("/ws/live").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/live/participants").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/live/watch").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/live/host-ticket").hasRole("ADMIN")
 
                         .requestMatchers("/api/chat/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/chat/**").permitAll()

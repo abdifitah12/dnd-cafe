@@ -14,9 +14,24 @@ import org.springframework.web.bind.annotation.CrossOrigin;
         "https://d-d-frontend-sigma.vercel.app"})
 public class LiveRoomController {
     private final LiveRoomWebSocketHandler room;
+    private final LiveHostTickets hostTickets;
 
-    public LiveRoomController(LiveRoomWebSocketHandler room) {
+    public LiveRoomController(LiveRoomWebSocketHandler room, LiveHostTickets hostTickets) {
         this.room = room;
+        this.hostTickets = hostTickets;
+    }
+
+    @PostMapping("/api/live/host-ticket")
+    public ResponseEntity<java.util.Map<String, String>> hostTicket(org.springframework.security.core.Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication.getAuthorities().stream().noneMatch(authority -> authority.getAuthority().equals("ROLE_ADMIN"))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin sign-in is required to start a live room.");
+        }
+        try {
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(java.util.Map.of("ticket", hostTickets.issue()));
+        } catch (IllegalStateException failure) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, failure.getMessage());
+        }
     }
 
     @PostMapping("/api/live/watch")
