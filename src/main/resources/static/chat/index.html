@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Chat | DnD Cafe</title>
+  <link rel="stylesheet" href="chat.css">
+  <script src="chat.js" defer></script>
+</head>
+<body>
+  <header><a class="brand" href="/chat/index.html">DnD Cafe</a><span>Live Chat</span><a href="?staff=1">Staff sign in</a></header>
+  <main>
+    <aside>
+      <p class="eyebrow">DND CAFE</p>
+      <h1>A little conversation.<br>A warm welcome.</h1>
+      <p>Ask us about the menu, upcoming events, or your next visit.</p>
+      <p class="note">Leave a message and our cafe team will reply here when available.</p>
+    </aside>
+    <section aria-label="Live chat">
+      <div class="chat-heading"><div><p class="eyebrow">LET’S TALK</p><h2 id="title">Chat with our team</h2></div><span id="status" role="status">Welcome</span></div>
+      <form id="start-form">
+        <label for="name">Your name</label><input id="name" maxlength="80" autocomplete="given-name" required>
+        <button>Start conversation</button>
+      </form>
+      <form id="login-form" hidden>
+        <label for="username">Staff username</label><input id="username" autocomplete="username" required>
+        <label for="password">Password</label><input id="password" type="password" autocomplete="current-password" required>
+        <button>Sign in</button>
+      </form>
+      <div id="conversation-list" hidden><label for="conversations">Visitor conversations</label><select id="conversations"><option value="">Choose a conversation</option></select><button id="refresh" type="button">Refresh inbox</button></div>
+      <div id="messages" role="log" aria-label="Messages" aria-live="polite"><p class="empty">Make yourself at home. Your conversation will appear here.</p></div>
+      <form id="message-form" hidden>
+        <label class="sr-only" for="message">Your message</label>
+        <textarea id="message" rows="2" maxlength="2000" placeholder="Write a message…" required></textarea>
+        <button id="send">Send</button>
+      </form>
+      <p id="error" role="alert"></p>
+    </section>
+  </main>
+</body>
+</html>

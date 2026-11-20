@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 @RestController
@@ -41,6 +43,8 @@ public class EventHistoryController {
     public EventHistory uploadHistory(
             @RequestParam String title,
             @RequestParam(required = false) String description,
+            @RequestParam(required = false) LocalDate eventDate,
+            @RequestParam(required = false) LocalTime eventTime,
             @RequestParam MultipartFile file
     ) throws IOException {
 
@@ -49,6 +53,8 @@ public class EventHistoryController {
         EventHistory history = new EventHistory();
         history.setTitle(title);
         history.setDescription(description);
+        history.setEventDate(eventDate);
+        history.setEventTime(eventTime);
         history.setMediaUrl(mediaUrl);
 
         if (file.getContentType() != null && file.getContentType().startsWith("video")) {
@@ -64,15 +70,39 @@ public class EventHistoryController {
     public EventHistory saveYoutubeVideo(
             @RequestParam String title,
             @RequestParam String description,
-            @RequestParam String mediaUrl
+            @RequestParam String mediaUrl,
+            @RequestParam(required = false) LocalDate eventDate,
+            @RequestParam(required = false) LocalTime eventTime
     ) {
 
         EventHistory history = new EventHistory();
 
         history.setTitle(title);
         history.setDescription(description);
+        history.setEventDate(eventDate);
+        history.setEventTime(eventTime);
         history.setMediaUrl(mediaUrl);
         history.setMediaType("youtube");
+
+        return repository.save(history);
+    }
+
+    @PutMapping("/{id}")
+    public EventHistory update(
+            @PathVariable Long id,
+            @RequestBody EventHistory updated
+    ) {
+        EventHistory history = repository.findById(id)
+                .orElseThrow(() ->
+                        new RuntimeException("Event history not found with id: " + id)
+                );
+
+        history.setTitle(updated.getTitle());
+        history.setDescription(updated.getDescription());
+        history.setMediaUrl(updated.getMediaUrl());
+        history.setMediaType(updated.getMediaType());
+        history.setEventDate(updated.getEventDate());
+        history.setEventTime(updated.getEventTime());
 
         return repository.save(history);
     }

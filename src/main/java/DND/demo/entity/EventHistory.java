@@ -4,6 +4,8 @@ import jakarta.persistence.*;
 import lombok.*;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.time.LocalTime;
 
 @Entity
 @Data
@@ -24,6 +26,10 @@ public class EventHistory {
     private String mediaUrl;
 
     private String mediaType;
+
+    private LocalDate eventDate;
+
+    private LocalTime eventTime;
 
     private LocalDateTime createdAt;
 

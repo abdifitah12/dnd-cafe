@@ -6,6 +6,7 @@ package DND.demo.security;
 import DND.demo.entity.Admin;
 import DND.demo.entity.Role;
 import DND.demo.repository.AdminRepository;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -48,6 +49,21 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+
+                        .requestMatchers(HttpMethod.POST, "/api/customers/auth/register",
+                                "/api/customers/auth/login").permitAll()
+                        .requestMatchers("/api/customers/**").hasRole("CUSTOMER")
+                        .requestMatchers("/ws/live").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/live/participants").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/live/watch").permitAll()
+
+                        .requestMatchers("/api/chat/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/chat/**").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/chat/conversations",
+                                "/api/chat/conversations/*/messages").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/chat/conversations/*/messages").permitAll()
+
                         // LOGIN MUST BE PUBLIC
                         .requestMatchers(
                                 HttpMethod.POST,
@@ -70,7 +86,8 @@ public class SecurityConfig {
 
                         .requestMatchers(
                                 HttpMethod.PUT,
-                                "/api/events/**"
+                                "/api/events/**",
+                                "/api/event-history/**"
                         ).hasRole("ADMIN")
 
                         .requestMatchers(

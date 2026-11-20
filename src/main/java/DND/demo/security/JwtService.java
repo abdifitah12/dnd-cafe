@@ -1,6 +1,7 @@
 package DND.demo.security;
 
 import DND.demo.entity.Admin;
+import DND.demo.entity.Customer;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
@@ -26,10 +27,18 @@ public class JwtService {
     }
 
     public String generateToken(Admin admin) {
+        return generateToken(admin.getUsername(), admin.getRole().name());
+    }
+
+    public String generateCustomerToken(Customer customer) {
+        return generateToken(customer.getUsername(), "CUSTOMER");
+    }
+
+    private String generateToken(String username, String role) {
 
         return Jwts.builder()
-                .subject(admin.getUsername())
-                .claim("role", admin.getRole().name())
+                .subject(username)
+                .claim("role", role)
                 .issuedAt(new Date())
                 .expiration(
                         new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24)
