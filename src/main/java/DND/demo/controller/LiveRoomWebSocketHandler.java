@@ -72,7 +72,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             return;
         }
         String name = query.getFirst("name");
-        name = name == null ? "" : name.strip().replaceAll("\\p{Cntrl}", "");
+        name = name == null ? "" : java.net.URLDecoder.decode(name, java.nio.charset.StandardCharsets.UTF_8).strip().replaceAll("\\p{Cntrl}", "");
         if (name.isBlank() || name.length() > 60) {
             session.close(CloseStatus.BAD_DATA);
             return;
@@ -94,8 +94,9 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             }
         }
         boolean starting = "start".equals(query.getFirst("mode"));
+        boolean joining = "join".equals(query.getFirst("mode"));
         if ((starting && !hostTickets.consume(query.getFirst("hostTicket")))
-                || (!starting && !"request".equals(query.getFirst("mode")))) {
+                || (!starting && !joining && !"request".equals(query.getFirst("mode")))) {
             reject(session, "Admin approval is required to start a live room.");
             return;
         }
@@ -119,8 +120,12 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 admit(peerId, session);
                 return;
             }
-            if (participants.size() >= MAX_PARTICIPANTS || pending.size() >= MAX_PENDING) {
+            if (participants.size() >= MAX_PARTICIPANTS || (!joining && pending.size() >= MAX_PENDING)) {
                 reject(session, "The live room is full or has too many requests. Please try later.");
+                return;
+            }
+            if (joining) {
+                admit(peerId, session);
                 return;
             }
             pending.put(peerId, session);

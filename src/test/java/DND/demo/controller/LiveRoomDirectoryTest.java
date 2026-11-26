@@ -293,6 +293,31 @@ class LiveRoomDirectoryTest {
     }
 
     @Test
+    void guestsJoinImmediatelyWithoutWaitingForHostApproval() throws Exception {
+        var host = connect("Host", "start");
+        clearInvocations(host);
+        var guest = connect("Guest+Name", "join");
+        assertEquals(2, room.roomStatus().participants().size());
+        assertEquals("Guest Name", room.roomStatus().participants().stream().filter(person -> person.peerId().equals(id(guest))).findFirst().orElseThrow().name());
+        verify(guest).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("\"type\":\"joined\"")));
+        verify(guest, never()).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("waiting")));
+        verify(host, never()).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("join-request")));
+    }
+
+    @Test
+    void directJoinsStillRequireAnActiveHostAndRespectTenCameraLimit() throws Exception {
+        var noHost = connect("NoHost", "join");
+        verify(noHost).close(CloseStatus.NORMAL);
+        assertTrue(room.roomStatus().participants().isEmpty());
+        connect("Host", "start");
+        for (int index = 0; index < 9; index++) connect("Guest" + index, "join");
+        assertEquals(10, room.roomStatus().participants().size());
+        var full = connect("TooMany", "join");
+        verify(full).close(CloseStatus.NORMAL);
+        assertEquals(10, room.roomStatus().participants().size());
+    }
+
+    @Test
     void roomLimitIsRecheckedAtApproval() throws Exception {
         var host = connect("Host", "start");
         var waiting = connect("Waiting", "request");
