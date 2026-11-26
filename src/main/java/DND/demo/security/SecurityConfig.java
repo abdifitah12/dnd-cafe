@@ -58,6 +58,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/live/participants").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/live/watch").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/live/host-ticket").hasRole("ADMIN")
+                        .requestMatchers("/api/live/admin/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/live/requests", "/api/live/requests/*/start", "/api/live/requests/*/cancel").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/live/requests/*").permitAll()
 
                         .requestMatchers("/api/chat/admin/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/chat/**").permitAll()

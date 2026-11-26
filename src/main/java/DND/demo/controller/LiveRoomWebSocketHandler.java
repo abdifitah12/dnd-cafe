@@ -26,6 +26,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     private final Map<String, WebSocketSession> participants = new LinkedHashMap<>();
     private final Map<String, WebSocketSession> pending = new LinkedHashMap<>();
     private final Object roomLock = new Object();
+    private final Map<String, WebSocketSession> monitors = new LinkedHashMap<>();
     private String hostPeerId;
     private record MediaLimits(boolean audioBlocked, boolean cameraBlocked) {}
     private final Map<String, MediaLimits> mediaLimits = new LinkedHashMap<>();
@@ -76,10 +77,26 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.BAD_DATA);
             return;
         }
+        if ("monitor".equals(query.getFirst("mode"))) {
+            if (!hostTickets.consumeMonitor(query.getFirst("hostTicket"))) { reject(session, "Admin authorization required to monitor."); return; }
+            synchronized (roomLock) {
+                if (hostPeerId == null || participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId) || monitors.size() >= 2) { reject(session, "The room is unavailable or both admin monitoring spaces are in use."); return; }
+                session.getAttributes().put("peerId", peerId); session.getAttributes().put("displayName", name);
+                monitors.put(peerId, session);
+                var joined = objectMapper.createObjectNode().put("type", "monitoring").put("hostPeerId", hostPeerId);
+                var peers = joined.putArray("participants");
+                participants.forEach((id, member) -> peers.addObject().put("peerId", id).put("name", displayName(member))
+                        .put("audioBlocked", limits(id).audioBlocked()).put("cameraBlocked", limits(id).cameraBlocked()));
+                send(session, joined);
+                var notice = objectMapper.createObjectNode().put("type", "monitor-joined").put("peerId", peerId).put("name", "Admin monitor");
+                participants.values().forEach(member -> send(member, notice));
+                return;
+            }
+        }
         boolean starting = "start".equals(query.getFirst("mode"));
         if ((starting && !hostTickets.consume(query.getFirst("hostTicket")))
                 || (!starting && !"request".equals(query.getFirst("mode")))) {
-            reject(session, "Only a signed-in admin can start a live room.");
+            reject(session, "Admin approval is required to start a live room.");
             return;
         }
         synchronized (roomLock) {
@@ -87,7 +104,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 reject(session, "A live room is already running. Open the public live page to view it.");
                 return;
             }
-            if (participants.containsKey(peerId) || pending.containsKey(peerId)) {
+            if (participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId)) {
                 reject(session, "Could not join. Please try again.");
                 return;
             }
@@ -134,6 +151,10 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
         var notification = objectMapper.createObjectNode().put("type", "peer-joined")
                 .put("peerId", peerId).put("name", displayName(session));
         existing.forEach(entry -> send(entry.getValue(), notification));
+        monitors.forEach((id, monitor) -> {
+            send(monitor, notification);
+            send(session, objectMapper.createObjectNode().put("type", "monitor-joined").put("peerId", id).put("name", "Admin monitor"));
+        });
     }
 
     @Override
@@ -156,8 +177,10 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
         synchronized (roomLock) {
             String peerId = (String) session.getAttributes().get("peerId");
             // A waiting guest cannot send WebRTC signals or make host decisions.
-            if (peerId == null || participants.get(peerId) != session) return;
+            boolean monitoring = peerId != null && monitors.get(peerId) == session;
+            if (peerId == null || (!monitoring && participants.get(peerId) != session)) return;
             String type = request.path("type").asText();
+            if (monitoring && !type.equals("answer") && !type.equals("ice")) return;
             if (type.equals("end-live")) {
                 if (!peerId.equals(hostPeerId)) return;
                 afterConnectionClosed(session, CloseStatus.NORMAL);
@@ -205,6 +228,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 var controls = objectMapper.createObjectNode().put("type", "guest-controls").put("peerId", target)
                         .put("audioBlocked", next.audioBlocked()).put("cameraBlocked", next.cameraBlocked());
                 participants.values().forEach(member -> send(member, controls));
+                monitors.values().forEach(monitor -> send(monitor, controls));
                 return;
             }
             if (type.equals("approve") || type.equals("decline")) {
@@ -228,7 +252,8 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 session.close(CloseStatus.BAD_DATA);
                 return;
             }
-            WebSocketSession recipient = participants.get(target);
+            WebSocketSession recipient = participants.containsKey(target) ? participants.get(target) : monitors.get(target);
+            if (monitoring && monitors.containsKey(target)) return;
             if (recipient == null || target.equals(peerId)) return;
             var relay = objectMapper.createObjectNode().put("type", type).put("fromPeer", peerId)
                     .put("fromName", displayName(session));
@@ -242,6 +267,10 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
         String peerId = (String) session.getAttributes().get("peerId");
         if (peerId == null) return;
         synchronized (roomLock) {
+            if (monitors.remove(peerId, session)) {
+                var left = objectMapper.createObjectNode().put("type", "peer-left").put("peerId", peerId);
+                participants.values().forEach(member -> send(member, left)); return;
+            }
             if (pending.remove(peerId, session)) {
                 send(participants.get(hostPeerId), objectMapper.createObjectNode()
                         .put("type", "request-resolved").put("peerId", peerId));
@@ -255,6 +284,8 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 }
                 var remaining = new ArrayList<>(participants.values());
                 remaining.addAll(pending.values());
+                remaining.addAll(monitors.values());
+                monitors.clear();
                 participants.clear();
                 mediaLimits.clear();
                 pending.clear();
@@ -265,6 +296,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             } else {
                 var left = objectMapper.createObjectNode().put("type", "peer-left").put("peerId", peerId);
                 participants.values().forEach(guest -> send(guest, left));
+                monitors.values().forEach(monitor -> send(monitor, left));
             }
         }
     }
@@ -273,6 +305,40 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         afterConnectionClosed(session, CloseStatus.SERVER_ERROR);
         close(session);
+    }
+
+    public void adminControl(String action, String target, String expectedHost) {
+        synchronized (roomLock) {
+            if (hostPeerId == null || !hostPeerId.equals(expectedHost)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "The live room changed. Refresh before trying again.");
+            if ("end-live".equals(action)) {
+                var host = participants.get(hostPeerId);
+                afterConnectionClosed(host, CloseStatus.NORMAL);
+                send(host, objectMapper.createObjectNode().put("type", "room-ended").put("message", "An admin stopped this live stream."));
+                close(host); return;
+            }
+            if (!java.util.List.of("mute-guest", "camera-off", "allow-mic", "allow-camera", "remove-guest").contains(action)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Unknown live control.");
+            var member = participants.get(target);
+            if (member == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "This person already left.");
+            try {
+                if ("remove-guest".equals(action)) {
+                    media.remove(mediaRoom(), target);
+                    afterConnectionClosed(member, CloseStatus.NORMAL);
+                    send(member, objectMapper.createObjectNode().put("type", "removed").put("message", "An admin removed you from the live room."));
+                    close(member); return;
+                }
+                var current = limits(target);
+                var next = new MediaLimits(action.equals("mute-guest") || (!action.equals("allow-mic") && current.audioBlocked()),
+                        action.equals("camera-off") || (!action.equals("allow-camera") && current.cameraBlocked()));
+                media.restrict(mediaRoom(), target, next.audioBlocked(), next.cameraBlocked());
+                mediaLimits.put(target, next);
+                var update = objectMapper.createObjectNode().put("type", "guest-controls").put("peerId", target)
+                        .put("audioBlocked", next.audioBlocked()).put("cameraBlocked", next.cameraBlocked());
+                participants.values().forEach(person -> send(person, update));
+                monitors.values().forEach(monitor -> send(monitor, update));
+            } catch (IllegalStateException failure) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, failure.getMessage());
+            }
+        }
     }
 
     private MediaLimits limits(String peerId) {

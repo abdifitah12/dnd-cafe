@@ -40,6 +40,10 @@ class LiveRoomCorsTest {
         @Bean
         LiveRoomWebSocketHandler room() { return mock(LiveRoomWebSocketHandler.class); }
         @Bean
+        LiveBroadcastRequests broadcasts() { return mock(LiveBroadcastRequests.class); }
+        @Bean
+        LiveBroadcastController broadcastController(LiveBroadcastRequests requests, LiveRoomWebSocketHandler room) { return new LiveBroadcastController(requests, room); }
+        @Bean
         LiveRoomController controller(LiveRoomWebSocketHandler room) { return new LiveRoomController(room, new LiveHostTickets()); }
     }
     @Test
@@ -67,6 +71,18 @@ class LiveRoomCorsTest {
         mvc.perform(post("/api/live/watch").header("Origin", "https://dndcafe.to"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Access-Control-Allow-Origin", "https://dndcafe.to"));
+    }
+
+    @Test
+    void broadcastRequestAndAdminPreflightsAllowTheRequiredHeaders() throws Exception {
+        for (String path : List.of("/api/live/host-ticket", "/api/live/admin/monitor-ticket", "/api/live/requests", "/api/live/admin/control", "/api/live/requests/test/start")) {
+            mvc.perform(options(path).header("Origin", "https://dndcafe.to")
+                    .header("Access-Control-Request-Method", "POST")
+                    .header("Access-Control-Request-Headers", "authorization,content-type,x-live-request-token"))
+                    .andExpect(status().isOk()).andExpect(header().string("Access-Control-Allow-Origin", "https://dndcafe.to"));
+        }
+        mvc.perform(get("/api/live/admin/requests").header("Origin", "https://dndcafe.to"))
+                .andExpect(status().isForbidden()).andExpect(header().string("Access-Control-Allow-Origin", "https://dndcafe.to"));
     }
 
     @Test

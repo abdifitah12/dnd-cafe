@@ -239,6 +239,60 @@ class LiveRoomDirectoryTest {
     }
 
     @Test
+    void adminCanModerateAndStopAVisitorHostedRoom() throws Exception {
+        var host = connect("VisitorHost", "start");
+        var guest = connect("Guest", "request"); decide(host, guest, "approve");
+        String hostId = id(host);
+        room.adminControl("mute-guest", hostId, hostId);
+        assertTrue(room.roomStatus().participants().stream().filter(person -> person.peerId().equals(hostId)).findFirst().orElseThrow().audioBlocked());
+        room.adminControl("camera-off", hostId, hostId);
+        assertTrue(room.roomStatus().participants().stream().filter(person -> person.peerId().equals(hostId)).findFirst().orElseThrow().cameraBlocked());
+        assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> room.adminControl("end-live", null, "previous-host"));
+        assertEquals(2, room.roomStatus().participants().size());
+        room.adminControl("end-live", null, hostId);
+        assertTrue(room.roomStatus().participants().isEmpty());
+        verify(host).close(CloseStatus.NORMAL); verify(guest).close(CloseStatus.NORMAL);
+    }
+
+    private WebSocketSession monitor(String ticket) throws Exception {
+        var session = mock(WebSocketSession.class);
+        when(session.getUri()).thenReturn(URI.create("http://localhost/ws/live?peerId=" + UUID.randomUUID() + "&name=Admin&mode=monitor&hostTicket=" + ticket));
+        when(session.getAttributes()).thenReturn(new HashMap<>());
+        when(session.isOpen()).thenReturn(true);
+        room.afterConnectionEstablished(session);
+        return session;
+    }
+
+    @Test
+    void adminMonitoringDoesNotUseCameraSpacesAndCannotSendHostCommands() throws Exception {
+        var host = connect("Host", "start");
+        var monitor = monitor(hostTickets.issueMonitor());
+        assertEquals(1, room.roomStatus().participants().size());
+        verify(host).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("monitor-joined")));
+        clearInvocations(host);
+        room.handleTextMessage(monitor, new TextMessage("{\"type\":\"end-live\"}"));
+        room.handleTextMessage(monitor, new TextMessage("{\"type\":\"offer\",\"target\":\"" + id(host) + "\",\"payload\":{}}"));
+        verify(host, never()).sendMessage(any());
+        assertEquals(1, room.roomStatus().participants().size());
+        room.afterConnectionClosed(monitor, CloseStatus.NORMAL);
+        assertEquals(1, room.roomStatus().participants().size());
+    }
+
+    @Test
+    void monitoringRequiresTheCorrectTicketAndEndsWithTheRoom() throws Exception {
+        var host = connect("Host", "start");
+        var denied = monitor(hostTickets.issue());
+        verify(denied).close(CloseStatus.NORMAL);
+        var monitor = monitor(hostTickets.issueMonitor());
+        var guest = connect("Guest", "request"); decide(host, guest, "approve");
+        verify(monitor).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("peer-joined")));
+        verify(guest).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("monitor-joined")));
+        room.adminControl("end-live", null, id(host));
+        verify(monitor).close(CloseStatus.NORMAL);
+        assertTrue(room.roomStatus().participants().isEmpty());
+    }
+
+    @Test
     void roomLimitIsRecheckedAtApproval() throws Exception {
         var host = connect("Host", "start");
         var waiting = connect("Waiting", "request");

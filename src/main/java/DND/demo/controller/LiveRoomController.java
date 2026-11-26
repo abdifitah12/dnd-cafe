@@ -34,6 +34,13 @@ public class LiveRoomController {
         }
     }
 
+    @PostMapping("/api/live/admin/monitor-ticket")
+    public ResponseEntity<java.util.Map<String, String>> monitorTicket(org.springframework.security.core.Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication.getAuthorities().stream().noneMatch(a -> a.getAuthority().equals("ROLE_ADMIN"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Admin sign-in required.");
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(java.util.Map.of("ticket", hostTickets.issueMonitor()));
+    }
+
     @PostMapping("/api/live/watch")
     public ResponseEntity<LiveRoomWebSocketHandler.WatchSession> watch() {
         try {

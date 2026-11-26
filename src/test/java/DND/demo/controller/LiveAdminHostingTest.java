@@ -71,6 +71,21 @@ class LiveAdminHostingTest {
     }
 
     @Test
+    void monitorTicketsCannotStartBroadcastsAndRequireAdminRole() {
+        String monitor = tickets.issueMonitor();
+        assertFalse(tickets.consume(monitor));
+        assertTrue(tickets.consumeMonitor(monitor));
+        assertFalse(tickets.consumeMonitor(monitor));
+        String host = tickets.issue();
+        assertFalse(tickets.consumeMonitor(host));
+        assertTrue(tickets.consume(host));
+        var controller = new LiveRoomController(room, tickets);
+        var customer = new UsernamePasswordAuthenticationToken("Customer", null, List.of(new SimpleGrantedAuthority("ROLE_CUSTOMER")));
+        assertThrows(ResponseStatusException.class, () -> controller.monitorTicket(customer));
+        assertThrows(ResponseStatusException.class, () -> controller.monitorTicket(null));
+    }
+
+    @Test
     void onlyAuthenticatedAdminRolesCanIssueHostTickets() {
         var controller = new LiveRoomController(room, tickets);
         assertThrows(ResponseStatusException.class, () -> controller.hostTicket(null));
