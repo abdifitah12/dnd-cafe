@@ -20,6 +20,7 @@ import java.util.UUID;
 public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     private static final int MAX_PARTICIPANTS = 10;
     private static final int MAX_PENDING = 20;
+    private static final int MAX_PEER_VIEWERS = 3;
     private final JsonMapper objectMapper;
     private final LiveMediaService media;
     private final LiveHostTickets hostTickets;
@@ -38,7 +39,12 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     }
 
     public record LiveParticipant(String peerId, String name, boolean audioBlocked, boolean cameraBlocked) {}
-    public record RoomStatus(int limit, List<LiveParticipant> participants, String hostPeerId, boolean watchingEnabled) {}
+    public record RoomStatus(int limit, List<LiveParticipant> participants, String hostPeerId, boolean watchingEnabled,
+                             String watchTransport, int viewerLimit, long viewerCount) {
+        public RoomStatus(int limit, List<LiveParticipant> participants, String hostPeerId, boolean watchingEnabled) {
+            this(limit, participants, hostPeerId, watchingEnabled, watchingEnabled ? "sfu" : "peer", MAX_PEER_VIEWERS, 0);
+        }
+    }
     public record WatchSession(LiveMediaService.MediaSession media, String hostPeerId) {}
 
     public WatchSession watch() {
@@ -57,7 +63,9 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                             limits(entry.getKey()).audioBlocked(), limits(entry.getKey()).cameraBlocked()))
                     .sorted(java.util.Comparator.comparing(LiveParticipant::name)
                             .thenComparing(LiveParticipant::peerId)).toList();
-            return new RoomStatus(MAX_PARTICIPANTS, live, hostPeerId, media.configured());
+            long viewers = monitors.values().stream().filter(session -> !Boolean.TRUE.equals(session.getAttributes().get("adminMonitor"))).count();
+            return new RoomStatus(MAX_PARTICIPANTS, live, hostPeerId, media.configured() || viewers < MAX_PEER_VIEWERS,
+                    media.configured() ? "sfu" : "peer", media.configured() ? 0 : MAX_PEER_VIEWERS, viewers);
         }
     }
 
@@ -77,13 +85,22 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.BAD_DATA);
             return;
         }
-        if ("monitor".equals(query.getFirst("mode"))) {
-            if (!hostTickets.consumeMonitor(query.getFirst("hostTicket"))) { reject(session, "Admin authorization required to monitor."); return; }
+        boolean adminMonitor = "monitor".equals(query.getFirst("mode"));
+        boolean publicWatcher = "watch".equals(query.getFirst("mode"));
+        if (adminMonitor || publicWatcher) {
+            if (adminMonitor && !hostTickets.consumeMonitor(query.getFirst("hostTicket"))) { reject(session, "Admin authorization required to monitor."); return; }
+            if (publicWatcher && media.configured()) { reject(session, "Refresh the page to watch through the streaming service."); return; }
             synchronized (roomLock) {
-                if (hostPeerId == null || participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId) || monitors.size() >= 2) { reject(session, "The room is unavailable or both admin monitoring spaces are in use."); return; }
+                long adminCount = monitors.values().stream().filter(member -> Boolean.TRUE.equals(member.getAttributes().get("adminMonitor"))).count();
+                long viewerCount = monitors.size() - adminCount;
+                if (hostPeerId == null || participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId)) { reject(session, "This live room is no longer available."); return; }
+                if ((adminMonitor && adminCount >= 2) || (publicWatcher && viewerCount >= MAX_PEER_VIEWERS)) {
+                    reject(session, adminMonitor ? "Both admin monitoring spaces are in use." : "All 3 viewing spaces are in use. Please try again later."); return;
+                }
                 session.getAttributes().put("peerId", peerId); session.getAttributes().put("displayName", name);
+                session.getAttributes().put("adminMonitor", adminMonitor);
                 monitors.put(peerId, session);
-                var joined = objectMapper.createObjectNode().put("type", "monitoring").put("hostPeerId", hostPeerId);
+                var joined = objectMapper.createObjectNode().put("type", adminMonitor ? "monitoring" : "watching").put("hostPeerId", hostPeerId);
                 var peers = joined.putArray("participants");
                 participants.forEach((id, member) -> peers.addObject().put("peerId", id).put("name", displayName(member))
                         .put("audioBlocked", limits(id).audioBlocked()).put("cameraBlocked", limits(id).cameraBlocked()));

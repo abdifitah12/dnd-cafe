@@ -318,6 +318,69 @@ class LiveRoomDirectoryTest {
     }
 
     @Test
+    void publicViewersWatchWithoutApprovalOrUsingCameraPlaces() throws Exception {
+        var host = connect("Host", "start");
+        clearInvocations(host);
+        var viewer = connect("Viewer", "watch");
+        assertEquals(1, room.roomStatus().participants().size());
+        assertEquals(1, room.roomStatus().viewerCount());
+        assertEquals("peer", room.roomStatus().watchTransport());
+        verify(viewer).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("\"type\":\"watching\"")));
+        verify(host, never()).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("join-request")));
+        room.afterConnectionClosed(viewer, CloseStatus.NORMAL);
+        assertEquals(0, room.roomStatus().viewerCount());
+        assertEquals(1, room.roomStatus().participants().size());
+    }
+
+    @Test
+    void publicViewingIsReceiveOnlyAndCannotStartOrStopBroadcasts() throws Exception {
+        var missingHost = connect("NoHost", "watch");
+        verify(missingHost).close(CloseStatus.NORMAL);
+        assertTrue(room.roomStatus().participants().isEmpty());
+        var host = connect("Host", "start");
+        var viewer = connect("Viewer", "watch");
+        clearInvocations(host);
+        room.handleTextMessage(viewer, new TextMessage("{\"type\":\"end-live\"}"));
+        room.handleTextMessage(viewer, new TextMessage("{\"type\":\"offer\",\"target\":\"" + id(host) + "\",\"payload\":{}}"));
+        verify(host, never()).sendMessage(any());
+        assertEquals(1, room.roomStatus().participants().size());
+    }
+
+    @Test
+    void viewerLimitIsEnforcedSeparatelyAndKeepsAdminMonitoringAvailable() throws Exception {
+        connect("Host", "start");
+        for (int count = 0; count < 9; count++) connect("Guest" + count, "join");
+        for (int count = 0; count < 3; count++) connect("Viewer" + count, "watch");
+        assertEquals(10, room.roomStatus().participants().size());
+        assertEquals(3, room.roomStatus().viewerCount());
+        assertFalse(room.roomStatus().watchingEnabled());
+        var full = connect("Full", "watch"); verify(full).close(CloseStatus.NORMAL);
+        var admin = monitor(hostTickets.issueMonitor());
+        verify(admin, never()).close(any(CloseStatus.class));
+        assertEquals(3, room.roomStatus().viewerCount());
+    }
+
+    @Test
+    void endingTheRoomClosesPublicViewersAndClearsViewingSpaces() throws Exception {
+        var host = connect("Host", "start"); var viewer = connect("Viewer", "watch");
+        room.adminControl("end-live", null, id(host));
+        verify(viewer).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("room-ended")));
+        verify(viewer).close(CloseStatus.NORMAL);
+        assertEquals(0, room.roomStatus().viewerCount());
+    }
+
+    @Test
+    void sfuHostingAdvertisesScalableTransportInsteadOfPeerViewerLimit() throws Exception {
+        when(media.configured()).thenReturn(true);
+        when(media.session(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(new LiveMediaService.MediaSession("wss://example.invalid", "token"));
+        connect("Host", "start");
+        assertEquals("sfu", room.roomStatus().watchTransport());
+        assertEquals(0, room.roomStatus().viewerLimit());
+        assertTrue(room.roomStatus().watchingEnabled());
+        var fallback = connect("Viewer", "watch"); verify(fallback).close(CloseStatus.NORMAL);
+    }
+
+    @Test
     void roomLimitIsRecheckedAtApproval() throws Exception {
         var host = connect("Host", "start");
         var waiting = connect("Waiting", "request");
