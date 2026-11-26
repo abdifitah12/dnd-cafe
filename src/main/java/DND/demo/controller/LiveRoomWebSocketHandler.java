@@ -29,6 +29,8 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
     private final Object roomLock = new Object();
     private final Map<String, WebSocketSession> monitors = new LinkedHashMap<>();
     private String hostPeerId;
+    private final LiveCommentLog comments = new LiveCommentLog();
+    private final Map<String, WebSocketSession> commenters = new LinkedHashMap<>();
     private record MediaLimits(boolean audioBlocked, boolean cameraBlocked) {}
     private final Map<String, MediaLimits> mediaLimits = new LinkedHashMap<>();
 
@@ -45,12 +47,12 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             this(limit, participants, hostPeerId, watchingEnabled, watchingEnabled ? "sfu" : "peer", MAX_PEER_VIEWERS, 0);
         }
     }
-    public record WatchSession(LiveMediaService.MediaSession media, String hostPeerId) {}
+    public record WatchSession(LiveMediaService.MediaSession media, String hostPeerId, String commentsTicket) {}
 
     public WatchSession watch() {
         synchronized (roomLock) {
             if (hostPeerId == null || participants.isEmpty()) throw new IllegalStateException("No live room is active.");
-            return new WatchSession(media.session(mediaRoom(), "viewer-" + UUID.randomUUID(), "Viewer", false), hostPeerId);
+            return new WatchSession(media.session(mediaRoom(), "viewer-" + UUID.randomUUID(), "Viewer", false), hostPeerId, hostTickets.issueComments());
         }
     }
 
@@ -85,6 +87,19 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.BAD_DATA);
             return;
         }
+        if ("comments".equals(query.getFirst("mode"))) {
+            if (!hostTickets.consumeComments(query.getFirst("hostTicket"))) { reject(session, "Reopen the stream to reconnect comments."); return; }
+            synchronized (roomLock) {
+                if (hostPeerId == null || !hostPeerId.equals(query.getFirst("expectedHost"))
+                        || participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId) || commenters.containsKey(peerId)) {
+                    reject(session, "This live room is no longer available."); return;
+                }
+                session.getAttributes().put("peerId", peerId); session.getAttributes().put("displayName", "Viewer");
+                commenters.put(peerId, session);
+                send(session, objectMapper.createObjectNode().put("type", "comments-ready"));
+                sendCommentHistory(session); return;
+            }
+        }
         boolean adminMonitor = "monitor".equals(query.getFirst("mode"));
         boolean publicWatcher = "watch".equals(query.getFirst("mode"));
         if (adminMonitor || publicWatcher) {
@@ -93,7 +108,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             synchronized (roomLock) {
                 long adminCount = monitors.values().stream().filter(member -> Boolean.TRUE.equals(member.getAttributes().get("adminMonitor"))).count();
                 long viewerCount = monitors.size() - adminCount;
-                if (hostPeerId == null || participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId)) { reject(session, "This live room is no longer available."); return; }
+                if (hostPeerId == null || participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId) || commenters.containsKey(peerId)) { reject(session, "This live room is no longer available."); return; }
                 if ((adminMonitor && adminCount >= 2) || (publicWatcher && viewerCount >= MAX_PEER_VIEWERS)) {
                     reject(session, adminMonitor ? "Both admin monitoring spaces are in use." : "All 3 viewing spaces are in use. Please try again later."); return;
                 }
@@ -105,6 +120,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 participants.forEach((id, member) -> peers.addObject().put("peerId", id).put("name", displayName(member))
                         .put("audioBlocked", limits(id).audioBlocked()).put("cameraBlocked", limits(id).cameraBlocked()));
                 send(session, joined);
+                sendCommentHistory(session);
                 var notice = objectMapper.createObjectNode().put("type", "monitor-joined").put("peerId", peerId).put("name", "Admin monitor");
                 participants.values().forEach(member -> send(member, notice));
                 return;
@@ -122,7 +138,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 reject(session, "A live room is already running. Open the public live page to view it.");
                 return;
             }
-            if (participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId)) {
+            if (participants.containsKey(peerId) || pending.containsKey(peerId) || monitors.containsKey(peerId) || commenters.containsKey(peerId)) {
                 reject(session, "Could not join. Please try again.");
                 return;
             }
@@ -133,6 +149,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                     reject(session, "No live room is active. Please wait for the cafe to go live.");
                     return;
                 }
+                comments.clear();
                 hostPeerId = peerId;
                 admit(peerId, session);
                 return;
@@ -170,6 +187,7 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                     .put("cameraBlocked", limits(entry.getKey()).cameraBlocked());
         }
         send(session, joined);
+        sendCommentHistory(session);
         var notification = objectMapper.createObjectNode().put("type", "peer-joined")
                 .put("peerId", peerId).put("name", displayName(session));
         existing.forEach(entry -> send(entry.getValue(), notification));
@@ -200,9 +218,24 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
             String peerId = (String) session.getAttributes().get("peerId");
             // A waiting guest cannot send WebRTC signals or make host decisions.
             boolean monitoring = peerId != null && monitors.get(peerId) == session;
-            if (peerId == null || (!monitoring && participants.get(peerId) != session)) return;
+            boolean commenting = peerId != null && commenters.get(peerId) == session;
+            if (peerId == null || (!monitoring && !commenting && participants.get(peerId) != session)) return;
             String type = request.path("type").asText();
-            if (monitoring && !type.equals("answer") && !type.equals("ice")) return;
+            if (type.equals("comment")) {
+                try {
+                    if (!request.path("text").isTextual()) throw new IllegalArgumentException("Write a comment of 1 to 500 characters.");
+                    String role = peerId.equals(hostPeerId) ? "host" : Boolean.TRUE.equals(session.getAttributes().get("adminMonitor")) ? "admin" : monitoring || commenting ? "viewer" : "guest";
+                    var entry = comments.append(peerId, displayName(session), role, request.path("text").asText(), request.path("clientId").asText());
+                    var messageNode = objectMapper.createObjectNode().put("type", "comment");
+                    messageNode.set("comment", objectMapper.valueToTree(entry));
+                    var audience = new ArrayList<>(participants.values()); audience.addAll(monitors.values()); audience.addAll(commenters.values());
+                    audience.forEach(member -> send(member, messageNode));
+                } catch (IllegalArgumentException failure) {
+                    send(session, objectMapper.createObjectNode().put("type", "comment-error").put("message", failure.getMessage()));
+                }
+                return;
+            }
+            if (commenting || (monitoring && !type.equals("answer") && !type.equals("ice"))) return;
             if (type.equals("end-live")) {
                 if (!peerId.equals(hostPeerId)) return;
                 afterConnectionClosed(session, CloseStatus.NORMAL);
@@ -289,6 +322,8 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
         String peerId = (String) session.getAttributes().get("peerId");
         if (peerId == null) return;
         synchronized (roomLock) {
+            comments.forget(peerId);
+            if (commenters.remove(peerId, session)) return;
             if (monitors.remove(peerId, session)) {
                 var left = objectMapper.createObjectNode().put("type", "peer-left").put("peerId", peerId);
                 participants.values().forEach(member -> send(member, left)); return;
@@ -307,6 +342,9 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 var remaining = new ArrayList<>(participants.values());
                 remaining.addAll(pending.values());
                 remaining.addAll(monitors.values());
+                remaining.addAll(commenters.values());
+                commenters.clear();
+                comments.clear();
                 monitors.clear();
                 participants.clear();
                 mediaLimits.clear();
@@ -361,6 +399,12 @@ public class LiveRoomWebSocketHandler extends TextWebSocketHandler {
                 throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, failure.getMessage());
             }
         }
+    }
+
+    private void sendCommentHistory(WebSocketSession session) {
+        var history = objectMapper.createObjectNode().put("type", "comments-history");
+        history.set("comments", objectMapper.valueToTree(comments.history()));
+        send(session, history);
     }
 
     private MediaLimits limits(String peerId) {

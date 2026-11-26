@@ -86,6 +86,13 @@ class LiveAdminHostingTest {
     }
 
     @Test
+    void commentsTicketsCannotGrantHostingOrAdminMonitoring() {
+        String ticket = tickets.issueComments();
+        assertFalse(tickets.consume(ticket)); assertFalse(tickets.consumeMonitor(ticket));
+        assertTrue(tickets.consumeComments(ticket)); assertFalse(tickets.consumeComments(ticket));
+    }
+
+    @Test
     void onlyAuthenticatedAdminRolesCanIssueHostTickets() {
         var controller = new LiveRoomController(room, tickets);
         assertThrows(ResponseStatusException.class, () -> controller.hostTicket(null));

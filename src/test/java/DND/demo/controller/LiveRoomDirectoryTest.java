@@ -380,6 +380,67 @@ class LiveRoomDirectoryTest {
         var fallback = connect("Viewer", "watch"); verify(fallback).close(CloseStatus.NORMAL);
     }
 
+    private void comment(WebSocketSession sender, String text) throws Exception {
+        room.handleTextMessage(sender, new TextMessage("{\"type\":\"comment\",\"text\":\"" + text + "\",\"clientId\":\"client-test\",\"name\":\"Forged host\",\"role\":\"host\"}"));
+    }
+
+    @Test
+    void viewersCanCommentToHostsAndGuestsWithoutCameraPermissions() throws Exception {
+        var host = connect("Host", "start"); var guest = connect("Guest", "join"); var viewer = connect("Viewer", "watch");
+        clearInvocations(host, guest, viewer);
+        comment(viewer, "Hello everyone");
+        for (var recipient : java.util.List.of(host, guest, viewer)) {
+            verify(recipient).sendMessage(argThat(message -> {
+                String payload = ((TextMessage) message).getPayload();
+                return payload.contains("\"type\":\"comment\"") && payload.contains("Hello everyone")
+                        && payload.contains("\"role\":\"viewer\"") && payload.contains("\"name\":\"Viewer\"") && !payload.contains("Forged host");
+            }));
+        }
+        assertEquals(2, room.roomStatus().participants().size());
+    }
+
+    @Test
+    void invalidAndPendingCommentsAreNotBroadcast() throws Exception {
+        var host = connect("Host", "start"); var pending = connect("Pending", "request"); var viewer = connect("Viewer", "watch");
+        clearInvocations(host);
+        comment(pending, "Not admitted"); comment(viewer, "x".repeat(501));
+        verify(host, never()).sendMessage(any());
+        verify(viewer).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("comment-error")));
+    }
+
+    @Test
+    void lateViewersReceiveHistoryButNewRoomsDoNotReceiveOldComments() throws Exception {
+        var host = connect("Host", "start"); comment(host, "Old room message");
+        var viewer = connect("Viewer", "watch");
+        verify(viewer).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("comments-history") && ((TextMessage) message).getPayload().contains("Old room message")));
+        room.afterConnectionClosed(host, CloseStatus.NORMAL);
+        var next = connect("NextHost", "start");
+        verify(next).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("\"comments\":[]")));
+    }
+
+    @Test
+    void scalableViewersGetACommentsOnlyConnectionWithoutMediaPrivileges() throws Exception {
+        when(media.configured()).thenReturn(true);
+        when(media.session(anyString(), anyString(), anyString(), anyBoolean())).thenReturn(new LiveMediaService.MediaSession("wss://example.invalid", "token"));
+        var host = connect("Host", "start");
+        var watch = room.watch();
+        var viewer = mock(WebSocketSession.class);
+        var expectedHost = id(host);
+        when(viewer.getUri()).thenReturn(URI.create("http://localhost/ws/live?peerId=" + UUID.randomUUID() + "&name=Viewer&mode=comments&hostTicket=" + watch.commentsTicket() + "&expectedHost=" + expectedHost));
+        when(viewer.getAttributes()).thenReturn(new HashMap<>()); when(viewer.isOpen()).thenReturn(true);
+        room.afterConnectionEstablished(viewer);
+        verify(viewer).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("comments-ready")));
+        clearInvocations(host);
+        comment(viewer, "Watching with LiveKit");
+        verify(host).sendMessage(argThat(message -> ((TextMessage) message).getPayload().contains("Watching with LiveKit")));
+        clearInvocations(host);
+        room.handleTextMessage(viewer, new TextMessage("{\"type\":\"offer\",\"target\":\"" + id(host) + "\",\"payload\":{}}"));
+        verify(host, never()).sendMessage(any());
+        assertEquals(1, room.roomStatus().participants().size());
+        assertEquals(0, room.roomStatus().viewerCount());
+        room.adminControl("end-live", null, id(host)); verify(viewer).close(CloseStatus.NORMAL);
+    }
+
     @Test
     void roomLimitIsRecheckedAtApproval() throws Exception {
         var host = connect("Host", "start");

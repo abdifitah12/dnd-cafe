@@ -18,6 +18,7 @@ public class LiveHostTickets {
 
     public synchronized String issue() { return issueFor("host"); }
     public synchronized String issueMonitor() { return issueFor("monitor"); }
+    public synchronized String issueComments() { return issueFor("comments"); }
     private String issueFor(String purpose) {
         tickets.values().removeIf(ticket -> ticket.expiresAt() <= clock.millis());
         if (tickets.size() >= 512) throw new IllegalStateException("Too many pending starts. Please wait and try again.");
@@ -28,6 +29,7 @@ public class LiveHostTickets {
 
     public synchronized boolean consume(String ticket) { return consumeFor(ticket, "host"); }
     public synchronized boolean consumeMonitor(String ticket) { return consumeFor(ticket, "monitor"); }
+    public synchronized boolean consumeComments(String ticket) { return consumeFor(ticket, "comments"); }
     private boolean consumeFor(String token, String purpose) {
         if (token == null) return false;
         Ticket ticket = tickets.get(token);
